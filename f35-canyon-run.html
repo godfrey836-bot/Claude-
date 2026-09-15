@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>F-35 CANYON RUN</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #060a12;
+    height: 100%;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+  #stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas#gl {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ---------- HUD (heads-up flight display) ---------- */
+  #hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    color: #7CFFB2;
+    text-shadow: 0 0 6px rgba(124,255,178,0.6);
+  }
+  .hud-corner {
+    position: absolute;
+    font-size: 13px;
+    letter-spacing: 1px;
+    line-height: 1.5;
+  }
+  .hud-tl { top: 14px; left: 16px; }
+  .hud-tr { top: 14px; right: 16px; text-align: right; }
+  .hud-label { opacity: 0.6; font-size: 10px; }
+  .hud-value { font-size: 20px; font-weight: bold; }
+  #warningBanner {
+    position: absolute;
+    top: 44%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 22px;
+    font-weight: bold;
+    color: #ff4d4d;
+    text-shadow: 0 0 10px rgba(255,60,60,0.9);
+    letter-spacing: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  #warningBanner.show { opacity: 1; }
+  #reticle {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 18px; height: 18px;
+    transform: translate(-50%, -50%);
+    border: 1px solid rgba(124,255,178,0.5);
+    border-radius: 50%;
+  }
+  #reticle::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 3px; height: 3px;
+    background: rgba(124,255,178,0.8);
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+  }
+  #vignette {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 140px rgba(0,0,0,0.55);
+  }
+  #crashFlash {
+    position: absolute; inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* ---------- Overlays (title / game over) ---------- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(10,16,26,0.55) 0%, rgba(4,6,10,0.92) 75%);
+    color: #eaf6ff;
+    text-align: center;
+    gap: 10px;
+  }
+  .overlay[hidden] { display: none; }
+  .title-main {
+    font-size: clamp(28px, 6vw, 54px);
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: #eaf6ff;
+    text-shadow: 0 0 18px rgba(124,200,255,0.55), 0 0 3px #fff;
+    margin: 0;
+  }
+  .title-sub {
+    font-size: 13px;
+    letter-spacing: 3px;
+    color: #7fb4ff;
+    opacity: 0.85;
+    margin: 0 0 12px;
+  }
+  .blink {
+    animation: blink 1s steps(1) infinite;
+    font-size: 16px;
+    letter-spacing: 2px;
+    color: #fff;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .stat-row {
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #bcd6ee;
+  }
+  .stat-row b { color: #fff; font-size: 18px; }
+  .hint {
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: #6f8bab;
+    margin-top: 6px;
+  }
+  #restartBtn {
+    margin-top: 14px;
+    padding: 10px 26px;
+    background: linear-gradient(#1c2e44, #101c2b);
+    border: 1px solid #4d7ea8;
+    color: #eaf6ff;
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  #restartBtn:active { background: #10314d; }
+
+  #muteBtn {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: rgba(10,16,26,0.6);
+    color: #7CFFB2;
+    border: 1px solid #2f5540;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 5px 10px;
+    cursor: pointer;
+    pointer-events: all;
+    border-radius: 3px;
+  }
+  #loadingMsg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #7fb4ff;
+    font-size: 13px;
+    letter-spacing: 2px;
+    background: #060a12;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl"></canvas>
+
+  <div id="hud">
+    <div id="vignette"></div>
+    <div id="reticle"></div>
+    <div class="hud-corner hud-tl">
+      <div class="hud-label">AIRSPEED</div>
+      <div class="hud-value"><span id="hudSpeed">000</span> KT</div>
+      <div class="hud-label" style="margin-top:6px;">ALTITUDE</div>
+      <div class="hud-value"><span id="hudAlt">000</span> FT</div>
+    </div>
+    <div class="hud-corner hud-tr">
+      <div class="hud-label">DISTANCE</div>
+      <div class="hud-value"><span id="hudDist">0</span> M</div>
+      <div class="hud-label" style="margin-top:6px;">SCORE</div>
+      <div class="hud-value"><span id="hudScore">0</span></div>
+    </div>
+    <div id="warningBanner">PULL UP</div>
+    <div id="crashFlash"></div>
+  </div>
+
+  <button id="muteBtn" type="button">SOUND: ON</button>
+
+  <div class="overlay" id="titleScreen">
+    <p class="title-sub">STEALTH LOW-LEVEL STRIKE SIMULATOR</p>
+    <h1 class="title-main">F-35 CANYON RUN</h1>
+    <div class="stat-row">BEST DISTANCE <b id="titleBest">0</b> M</div>
+    <p class="blink" style="margin-top:18px;">CLICK / TAP / SPACE TO LAUNCH</p>
+    <p class="hint">ARROW KEYS or WASD to steer &middot; DRAG on mobile &middot; fly through gaps, dodge the rest</p>
+  </div>
+
+  <div class="overlay" id="gameOverScreen" hidden>
+    <h1 class="title-main" style="color:#ff6b6b; font-size:clamp(24px,5vw,40px);">AIRCRAFT LOST</h1>
+    <div class="stat-row">DISTANCE <b id="goDist">0</b> M</div>
+    <div class="stat-row">SCORE <b id="goScore">0</b></div>
+    <div class="stat-row">BEST <b id="goBest">0</b> M</div>
+    <button id="restartBtn" type="button">RE-ARM &amp; RETRY</button>
+  </div>
+
+  <div id="loadingMsg">LOADING FLIGHT SYSTEMS...</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.128.0/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+
+// =====================================================================
+// SECTION: CONFIG — every tunable feel/difficulty value lives here
+// =====================================================================
+const CONFIG = {
+  // Forward flight speed (world units/sec, world scrolls toward camera)
+  SPEED_START: 46,
+  SPEED_MAX: 150,
+  SPEED_ACCEL_PER_SEC: 0.55,     // speed gained per second survived
+  BOOST_SPEED_MULT: 0.55,        // fuel-boost pickup temporarily cuts speed (easier dodging)
+  BOOST_DURATION: 4.5,
+
+  // Steering / flight model
+  STRAFE_ACCEL: 62,              // lateral accel from input, units/sec^2
+  STRAFE_DAMPING: 3.2,           // velocity damping when no input (per second)
+  STRAFE_MAX_SPEED: 34,
+  VERT_ACCEL: 46,
+  VERT_DAMPING: 3.4,
+  VERT_MAX_SPEED: 26,
+  MAX_ROLL: 0.62,                // radians, visual bank angle
+  MAX_PITCH: 0.32,
+
+  // Play space bounds
+  CANYON_HALF_WIDTH: 24,
+  ALTITUDE_MIN: 2.4,             // ground collision height
+  ALTITUDE_MAX: 34,
+  START_ALTITUDE: 14,
+  JET_HITBOX_RADIUS: 1.55,
+
+  // World / terrain
+  SEGMENT_LENGTH: 50,
+  SEGMENTS_VISIBLE: 9,           // ground tiles kept alive at once
+
+  // Obstacle spawning
+  SPAWN_Z: -420,                 // distance ahead where new hazards appear
+  OBSTACLE_GAP_START: 30,        // world-Z spacing between hazard spawns
+  OBSTACLE_GAP_MIN: 15,
+  DIFFICULTY_RAMP: 0.0035,       // shrinks gaps / raises spawn rate with elapsed time
+  GATE_OPENING_START: 13,        // wall-gate opening size (shrinks with difficulty)
+  GATE_OPENING_MIN: 7.5,
+
+  // Pickups
+  RING_SCORE: 60,
+  RING_CHANCE: 0.55,
+  POWERUP_CHANCE: 0.22,
+  SHIELD_DURATION: 5,
+
+  // Scoring
+  SCORE_PER_METER: 1,
+  NEAR_MISS_BONUS: 15,
+  NEAR_MISS_RADIUS: 3.2,         // extra radius around obstacle that counts as a "close call"
+
+  // Camera rig
+  CAMERA_DISTANCE: 17,
+  CAMERA_HEIGHT: 6,
+  CAMERA_LOOKAHEAD: 28,
+  CAMERA_LERP: 5,
+  CAMERA_ROLL_FOLLOW: 0.5,
+  CAMERA_SHAKE_DECAY: 22,
+
+  // Atmosphere
+  FOG_NEAR: 60,
+  FOG_FAR: 260,
+  DAYNIGHT_METERS: 2600,         // distance for one full day->dusk cycle
+
+  FIXED_TIMESTEP: 1 / 60,
+};
+
+const FORWARD = -1; // travel direction along Z
+
+// =====================================================================
+// SECTION: DOM REFERENCES
+// =====================================================================
+const stage = document.getElementById('stage');
+const glCanvas = document.getElementById('gl');
+const loadingMsg = document.getElementById('loadingMsg');
+const titleScreen = document.getElementById('titleScreen');
+const gameOverScreen = document.getElementById('gameOverScreen');
+const restartBtn = document.getElementById('restartBtn');
+const muteBtn = document.getElementById('muteBtn');
+const warningBanner = document.getElementById('warningBanner');
+const crashFlash = document.getElementById('crashFlash');
+const hudSpeed = document.getElementById('hudSpeed');
+const hudAlt = document.getElementById('hudAlt');
+const hudDist = document.getElementById('hudDist');
+const hudScore = document.getElementById('hudScore');
+const titleBestEl = document.getElementById('titleBest');
+const goDistEl = document.getElementById('goDist');
+const goScoreEl = document.getElementById('goScore');
+const goBestEl = document.getElementById('goBest');
+
+function loadStat(key) {
+  try { return parseInt(localStorage.getItem(key) || '0', 10); }
+  catch (e) { return 0; }
+}
+function saveStat(key, value) {
+  try { localStorage.setItem(key, String(value)); }
+  catch (e) { /* storage blocked: best score just won't persist */ }
+}
+let bestDistance = loadStat('f35cr_best_distance');
+titleBestEl.textContent = Math.floor(bestDistance);
+
+// =====================================================================
+// SECTION: AUDIO — Web Audio synth (engine drone, whoosh, chime, explosion)
+// =====================================================================
+const Audio8 = (() => {
+  let actx = null;
+  let muted = false;
+  let engineOsc = null, engineGain = null, engineFilter = null;
+
+  function ctxReady() {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+
+  function tone(freq, duration, type, vol, delay) {
+    if (muted) return;
+    const ac = ctxReady();
+    delay = delay || 0;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, ac.currentTime + delay);
+    gain.gain.setValueAtTime(vol || 0.12, ac.currentTime + delay);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + delay + duration);
+    osc.connect(gain).connect(ac.destination);
+    osc.start(ac.currentTime + delay);
+    osc.stop(ac.currentTime + delay + duration);
+  }
+
+  function noiseBurst(duration, vol) {
+    if (muted) return;
+    const ac = ctxReady();
+    const size = Math.max(1, Math.floor(ac.sampleRate * duration));
+    const buffer = ac.createBuffer(1, size, ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < size; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / size);
+    const src = ac.createBufferSource();
+    src.buffer = buffer;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(vol || 0.2, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duration);
+    src.connect(gain).connect(ac.destination);
+    src.start();
+  }
+
+  function startEngine() {
+    if (muted || engineOsc) return;
+    const ac = ctxReady();
+    engineOsc = ac.createOscillator();
+    engineOsc.type = 'sawtooth';
+    engineOsc.frequency.value = 55;
+    engineFilter = ac.createBiquadFilter();
+    engineFilter.type = 'lowpass';
+    engineFilter.frequency.value = 320;
+    engineGain = ac.createGain();
+    engineGain.gain.value = 0.05;
+    engineOsc.connect(engineFilter).connect(engineGain).connect(ac.destination);
+    engineOsc.start();
+  }
+  function updateEngine(throttle01) {
+    if (!engineOsc) return;
+    const ac = ctxReady();
+    engineOsc.frequency.setTargetAtTime(50 + throttle01 * 90, ac.currentTime, 0.15);
+    engineFilter.frequency.setTargetAtTime(250 + throttle01 * 900, ac.currentTime, 0.15);
+    engineGain.gain.setTargetAtTime(muted ? 0 : 0.035 + throttle01 * 0.05, ac.currentTime, 0.2);
+  }
+  function stopEngine() {
+    if (engineOsc) { try { engineOsc.stop(); } catch (e) {} engineOsc = null; }
+  }
+
+  function chime() { tone(880, 0.08, 'sine', 0.12); tone(1320, 0.1, 'sine', 0.09, 0.05); }
+  function powerup() { tone(500, 0.09, 'square', 0.1); tone(750, 0.09, 'square', 0.1, 0.06); tone(1000, 0.12, 'square', 0.1, 0.12); }
+  function nearMiss() { tone(1400, 0.05, 'sine', 0.05); }
+  function warn() { tone(200, 0.12, 'square', 0.06); }
+  function explosion() { noiseBurst(0.6, 0.35); tone(120, 0.5, 'sawtooth', 0.22); stopEngine(); }
+
+  function setMuted(m) {
+    muted = m;
+    if (engineGain) engineGain.gain.value = m ? 0 : 0.05;
+  }
+  function isMuted() { return muted; }
+
+  return { ctxReady, startEngine, updateEngine, stopEngine, chime, powerup, nearMiss, warn, explosion, setMuted, isMuted };
+})();
+
+muteBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const m = !Audio8.isMuted();
+  Audio8.setMuted(m);
+  muteBtn.textContent = 'SOUND: ' + (m ? 'OFF' : 'ON');
+});
+
+// =====================================================================
+// SECTION: INPUT — keyboard (digital) + pointer drag (analog)
+// =====================================================================
+const Input = {
+  steerX: 0,   // -1..1
+  steerY: 0,   // -1..1 (1 = climb)
+  keys: {},
+  pointerActive: false,
+  pointerStartX: 0,
+  pointerStartY: 0,
+  launchPressed: false,
+};
+
+window.addEventListener('keydown', (e) => {
+  Input.keys[e.code] = true;
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'ArrowDown' ||
+      e.code === 'ArrowLeft' || e.code === 'ArrowRight') e.preventDefault();
+  if (e.code === 'Space') Input.launchPressed = true;
+});
+window.addEventListener('keyup', (e) => { Input.keys[e.code] = false; });
+
+function updateDigitalSteer() {
+  let x = 0, y = 0;
+  if (Input.keys['ArrowLeft'] || Input.keys['KeyA']) x -= 1;
+  if (Input.keys['ArrowRight'] || Input.keys['KeyD']) x += 1;
+  if (Input.keys['ArrowUp'] || Input.keys['KeyW']) y += 1;
+  if (Input.keys['ArrowDown'] || Input.keys['KeyS']) y -= 1;
+  return { x, y };
+}
+
+glCanvas.addEventListener('pointerdown', (e) => {
+  Input.pointerActive = true;
+  Input.pointerStartX = e.clientX;
+  Input.pointerStartY = e.clientY;
+  Input.launchPressed = true;
+  Audio8.ctxReady();
+});
+window.addEventListener('pointermove', (e) => {
+  if (!Input.pointerActive) return;
+  const dx = e.clientX - Input.pointerStartX;
+  const dy = e.clientY - Input.pointerStartY;
+  const range = Math.min(window.innerWidth, window.innerHeight) * 0.35;
+  Input.dragX = Math.max(-1, Math.min(1, dx / range));
+  Input.dragY = Math.max(-1, Math.min(1, -dy / range));
+});
+window.addEventListener('pointerup', () => {
+  Input.pointerActive = false;
+  Input.dragX = 0;
+  Input.dragY = 0;
+});
+
+function getSteerInput() {
+  const digital = updateDigitalSteer();
+  if (Input.pointerActive) {
+    return {
+      x: clamp(digital.x + (Input.dragX || 0), -1, 1),
+      y: clamp(digital.y + (Input.dragY || 0), -1, 1),
+    };
+  }
+  return digital;
+}
+
+// =====================================================================
+// SECTION: UTILS
+// =====================================================================
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+
+// Procedural canvas texture generator (no external image assets)
+function makeNoiseTexture(baseColor, speckColor, size, speckCount, alpha) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = baseColor;
+  g.fillRect(0, 0, size, size);
+  g.globalAlpha = alpha;
+  for (let i = 0; i < speckCount; i++) {
+    g.fillStyle = speckColor;
+    const s = rand(1, 3);
+    g.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// =====================================================================
+// SECTION: THREE.JS SETUP
+// =====================================================================
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+const skyColorDay = new THREE.Color('#8fd0f2');
+const skyColorDusk = new THREE.Color('#f2935a');
+scene.background = skyColorDay.clone();
+scene.fog = new THREE.Fog(skyColorDay.getHex(), CONFIG.FOG_NEAR, CONFIG.FOG_FAR);
+
+const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 800);
+const cameraRig = { pos: new THREE.Vector3(0, CONFIG.START_ALTITUDE + CONFIG.CAMERA_HEIGHT, CONFIG.CAMERA_DISTANCE), roll: 0 };
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+// --- Lighting ---
+const hemi = new THREE.HemisphereLight('#bfe3ff', '#3a3226', 0.65);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight('#fff3d6', 1.15);
+sun.position.set(-60, 90, 40);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -60;
+sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60;
+sun.shadow.camera.bottom = -60;
+sun.shadow.camera.far = 260;
+sun.shadow.bias = -0.0015;
+scene.add(sun);
+scene.add(sun.target);
+
+// =====================================================================
+// SECTION: JET MODEL — F-35 silhouette built from primitives (no assets)
+// =====================================================================
+function buildJet() {
+  const jet = new THREE.Group();
+
+  const stealthMat = new THREE.MeshStandardMaterial({ color: '#5b6270', metalness: 0.55, roughness: 0.42 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: '#2b2e35', metalness: 0.5, roughness: 0.5 });
+  const canopyMat = new THREE.MeshStandardMaterial({ color: '#1b2a3a', metalness: 0.8, roughness: 0.15, envMapIntensity: 1.2 });
+  const nozzleMat = new THREE.MeshStandardMaterial({ color: '#15161a', metalness: 0.8, roughness: 0.35 });
+  const afterburnerMat = new THREE.MeshBasicMaterial({ color: '#ff8a2a' });
+
+  // Fuselage (tapered lathe profile for a realistic aircraft body)
+  const profile = [
+    new THREE.Vector2(0.0, -3.3),
+    new THREE.Vector2(0.28, -3.0),
+    new THREE.Vector2(0.55, -2.0),
+    new THREE.Vector2(0.62, -0.6),
+    new THREE.Vector2(0.58, 1.0),
+    new THREE.Vector2(0.44, 2.1),
+    new THREE.Vector2(0.30, 2.7),
+    new THREE.Vector2(0.0, 2.85),
+  ];
+  const fuselageGeo = new THREE.LatheGeometry(profile, 16);
+  fuselageGeo.rotateX(Math.PI / 2); // lathe axis (Y) -> align along Z
+  const fuselage = new THREE.Mesh(fuselageGeo, stealthMat);
+  fuselage.castShadow = true;
+  jet.add(fuselage);
+
+  // Canopy
+  const canopyGeo = new THREE.SphereGeometry(0.42, 12, 8, 0, Math.PI * 2, 0, Math.PI / 1.9);
+  const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+  canopy.scale.set(1, 0.85, 1.9);
+  canopy.rotation.x = Math.PI;
+  canopy.position.set(0, 0.42, 1.05);
+  canopy.castShadow = true;
+  jet.add(canopy);
+
+  // Delta wings (extruded trapezoid, swept back)
+  function makeWingShape() {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0.9);
+    s.lineTo(3.4, -1.5);
+    s.lineTo(2.9, -2.15);
+    s.lineTo(0, -0.55);
+    s.closePath();
+    return s;
+  }
+  const wingGeo = new THREE.ExtrudeGeometry(makeWingShape(), { depth: 0.12, bevelEnabled: false });
+  const wingR = new THREE.Mesh(wingGeo, stealthMat);
+  wingR.rotation.x = Math.PI / 2;
+  wingR.position.set(0.5, -0.05, -0.3);
+  wingR.castShadow = true;
+  jet.add(wingR);
+  const wingL = wingR.clone();
+  wingL.scale.x = -1;
+  jet.add(wingL);
+
+  // Horizontal stabilizers near tail
+  function makeStabShape() {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0.4);
+    s.lineTo(1.7, -0.55);
+    s.lineTo(1.5, -0.95);
+    s.lineTo(0, -0.35);
+    s.closePath();
+    return s;
+  }
+  const stabGeo = new THREE.ExtrudeGeometry(makeStabShape(), { depth: 0.1, bevelEnabled: false });
+  const stabR = new THREE.Mesh(stabGeo, darkMat);
+  stabR.rotation.x = Math.PI / 2;
+  stabR.position.set(0.45, 0.0, -2.55);
+  stabR.castShadow = true;
+  jet.add(stabR);
+  const stabL = stabR.clone();
+  stabL.scale.x = -1;
+  jet.add(stabL);
+
+  // Twin canted tail fins
+  function makeFinShape() {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0);
+    s.lineTo(0.32, 1.5);
+    s.lineTo(1.0, 1.42);
+    s.lineTo(1.25, 0);
+    s.closePath();
+    return s;
+  }
+  const finGeo = new THREE.ExtrudeGeometry(makeFinShape(), { depth: 0.1, bevelEnabled: false });
+  const finR = new THREE.Mesh(finGeo, darkMat);
+  finR.position.set(0.32, 0.25, -2.75);
+  finR.rotateY(Math.PI / 2);   // stand the fin upright, root fixed along the fuselage spine
+  finR.rotateX(-0.34);         // then cant the tip outward
+  finR.castShadow = true;
+  jet.add(finR);
+  const finL = finR.clone();
+  finL.position.x = -0.32;
+  finL.scale.x = -1;           // mirrors both shape and outward cant to the other side
+  jet.add(finL);
+
+  // Engine nozzle + afterburner glow
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.5, 12), nozzleMat);
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.set(0, 0, -3.15);
+  jet.add(nozzle);
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.1, 10), afterburnerMat);
+  flame.rotation.x = -Math.PI / 2;
+  flame.position.set(0, 0, -3.9);
+  jet.add(flame);
+  const flameLight = new THREE.PointLight('#ff7a1a', 1.4, 7);
+  flameLight.position.set(0, 0, -3.6);
+  jet.add(flameLight);
+
+  jet.userData.flame = flame;
+  jet.userData.flameLight = flameLight;
+  jet.userData.flameMat = afterburnerMat;
+  return jet;
+}
+const jetGroup = buildJet();
+scene.add(jetGroup);
+
+const jetState = {
+  x: 0, y: CONFIG.START_ALTITUDE, vx: 0, vy: 0,
+  roll: 0, pitch: 0,
+  alive: true,
+};
+
+// =====================================================================
+// SECTION: WORLD — scrolling canyon terrain
+// =====================================================================
+const groundTex = makeNoiseTexture('#5a4632', '#463620', 256, 900, 0.5);
+groundTex.repeat.set(4, 40);
+const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1, metalness: 0 });
+const wallTex = makeNoiseTexture('#726a63', '#4f4842', 256, 700, 0.45);
+wallTex.repeat.set(2, 10);
+const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95, metalness: 0.05 });
+
+const groundTiles = [];
+const wallTilesL = [];
+const wallTilesR = [];
+
+function makeGroundTile(z) {
+  const geo = new THREE.PlaneGeometry(CONFIG.CANYON_HALF_WIDTH * 2.6, CONFIG.SEGMENT_LENGTH);
+  const mesh = new THREE.Mesh(geo, groundMat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(0, 0, z);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
+}
+function makeWallTile(side, z) {
+  const geo = new THREE.BoxGeometry(6, 70, CONFIG.SEGMENT_LENGTH);
+  const mesh = new THREE.Mesh(geo, wallMat);
+  mesh.position.set(side * (CONFIG.CANYON_HALF_WIDTH + 3), 30, z);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  scene.add(mesh);
+  return mesh;
+}
+for (let i = 0; i < CONFIG.SEGMENTS_VISIBLE; i++) {
+  const z = -i * CONFIG.SEGMENT_LENGTH;
+  groundTiles.push(makeGroundTile(z));
+  wallTilesL.push(makeWallTile(-1, z));
+  wallTilesR.push(makeWallTile(1, z));
+}
+
+// =====================================================================
+// SECTION: OBSTACLES & PICKUPS (object pool of active hazards)
+// =====================================================================
+const spireMat = new THREE.MeshStandardMaterial({ color: '#6b5d4f', roughness: 0.9 });
+const gateMat = new THREE.MeshStandardMaterial({ color: '#7d7468', roughness: 0.85 });
+const cableMat = new THREE.MeshStandardMaterial({ color: '#111214', metalness: 0.6, roughness: 0.4 });
+const enemyMat = new THREE.MeshStandardMaterial({ color: '#8a2f2f', metalness: 0.5, roughness: 0.4 });
+const ringMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#7a5a00', metalness: 0.7, roughness: 0.3 });
+const shieldMat = new THREE.MeshStandardMaterial({ color: '#3fa9ff', emissive: '#0a3a66', metalness: 0.4, roughness: 0.3 });
+const boostMat = new THREE.MeshStandardMaterial({ color: '#5cff8a', emissive: '#0a6620', metalness: 0.4, roughness: 0.3 });
+
+let hazards = [];   // { mesh, type, z, x, y, radius, w, h, passed, vx }
+let nextSpawnZ = -80;
+let elapsed = 0;
+
+function spawnHazardGroup(z) {
+  const difficulty = clamp(elapsed * CONFIG.DIFFICULTY_RAMP, 0, 1);
+  const roll = Math.random();
+  const px = rand(-CONFIG.CANYON_HALF_WIDTH * 0.7, CONFIG.CANYON_HALF_WIDTH * 0.7);
+  const py = rand(CONFIG.ALTITUDE_MIN + 3, CONFIG.ALTITUDE_MAX - 4);
+
+  if (roll < 0.32) {
+    // Rock spire — dodge around it
+    const h = rand(14, 24);
+    const r = rand(2.2, 3.4);
+    const geo = new THREE.ConeGeometry(r, h, 8);
+    const mesh = new THREE.Mesh(geo, spireMat);
+    mesh.position.set(px, h / 2, z);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
+    hazards.push({ mesh, type: 'spire', x: px, y: h / 2, radius: r, z, lethal: true });
+  } else if (roll < 0.60) {
+    // Wall gate — a canyon-spanning wall with one rectangular opening
+    const openW = lerp(CONFIG.GATE_OPENING_START, CONFIG.GATE_OPENING_MIN, difficulty);
+    const openH = lerp(CONFIG.GATE_OPENING_START * 0.85, CONFIG.GATE_OPENING_MIN * 0.9, difficulty);
+    const openX = rand(-CONFIG.CANYON_HALF_WIDTH + openW, CONFIG.CANYON_HALF_WIDTH - openW);
+    const openY = rand(CONFIG.ALTITUDE_MIN + openH * 0.6, CONFIG.ALTITUDE_MAX - openH * 0.6);
+    const group = new THREE.Group();
+    group.position.z = z;
+    const totalW = CONFIG.CANYON_HALF_WIDTH * 2;
+    const totalH = 60;
+    // left mass
+    const leftW = (openX - openW / 2) + CONFIG.CANYON_HALF_WIDTH;
+    if (leftW > 0.3) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(leftW, totalH, 2.4), gateMat);
+      m.position.set(-CONFIG.CANYON_HALF_WIDTH + leftW / 2, totalH / 2 - 2, 0);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    }
+    // right mass
+    const rightW = CONFIG.CANYON_HALF_WIDTH - (openX + openW / 2);
+    if (rightW > 0.3) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(rightW, totalH, 2.4), gateMat);
+      m.position.set(CONFIG.CANYON_HALF_WIDTH - rightW / 2, totalH / 2 - 2, 0);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    }
+    // top mass (above opening)
+    const topH = totalH - (openY + openH / 2 - (-2));
+    if (topH > 0.3) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(openW, topH, 2.4), gateMat);
+      m.position.set(openX, openY + openH / 2 + topH / 2, 0);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    }
+    // bottom mass (below opening, down to ground)
+    const botH = openY - openH / 2 + 2;
+    if (botH > 0.3) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(openW, botH, 2.4), gateMat);
+      m.position.set(openX, openY - openH / 2 - botH / 2, 0);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    }
+    scene.add(group);
+    hazards.push({
+      mesh: group, type: 'gate', z, lethal: true,
+      openX, openY, openW, openH, totalW, totalH,
+    });
+  } else if (roll < 0.80) {
+    // Taut cable strung across the canyon at one altitude — fly over or under
+    const cableY = rand(CONFIG.ALTITUDE_MIN + 5, CONFIG.ALTITUDE_MAX - 6);
+    const geo = new THREE.CylinderGeometry(0.14, 0.14, CONFIG.CANYON_HALF_WIDTH * 2, 6);
+    const mesh = new THREE.Mesh(geo, cableMat);
+    mesh.rotation.z = Math.PI / 2;
+    mesh.position.set(0, cableY, z);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    // small support pylons for readability
+    for (const sx of [-CONFIG.CANYON_HALF_WIDTH, CONFIG.CANYON_HALF_WIDTH]) {
+      const pyl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, cableY, 6), gateMat);
+      pyl.position.set(sx, cableY / 2, z);
+      pyl.castShadow = true;
+      scene.add(pyl);
+      hazards.push({ mesh: pyl, type: 'pylon', x: sx, y: cableY / 2, radius: 0.6, halfHeight: cableY / 2, z, lethal: true });
+    }
+    hazards.push({ mesh, type: 'cable', x: 0, y: cableY, z, halfWidth: CONFIG.CANYON_HALF_WIDTH, lethal: true });
+  } else {
+    // Enemy jet crossing the canyon laterally
+    const enemy = buildJet();
+    enemy.traverse((o) => { if (o.material) o.material = enemyMat; });
+    enemy.scale.setScalar(0.85);
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    enemy.position.set(-dir * CONFIG.CANYON_HALF_WIDTH, py, z);
+    enemy.rotation.y = dir > 0 ? -Math.PI / 2 : Math.PI / 2;
+    scene.add(enemy);
+    hazards.push({ mesh: enemy, type: 'enemy', x: -dir * CONFIG.CANYON_HALF_WIDTH, y: py, z, vx: dir * 9, radius: 1.8, lethal: true });
+  }
+
+  // Chance to add a ring (score) or powerup near this hazard, offset in Z so it's reachable
+  if (Math.random() < CONFIG.RING_CHANCE) {
+    const ringY = rand(CONFIG.ALTITUDE_MIN + 4, CONFIG.ALTITUDE_MAX - 4);
+    const ringX = rand(-CONFIG.CANYON_HALF_WIDTH * 0.6, CONFIG.CANYON_HALF_WIDTH * 0.6);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.18, 8, 20), ringMat);
+    ring.position.set(ringX, ringY, z - 16);
+    scene.add(ring);
+    hazards.push({ mesh: ring, type: 'ring', x: ringX, y: ringY, z: z - 16, radius: 1.6, lethal: false });
+  } else if (Math.random() < CONFIG.POWERUP_CHANCE) {
+    const isShield = Math.random() < 0.5;
+    const puY = rand(CONFIG.ALTITUDE_MIN + 4, CONFIG.ALTITUDE_MAX - 4);
+    const puX = rand(-CONFIG.CANYON_HALF_WIDTH * 0.6, CONFIG.CANYON_HALF_WIDTH * 0.6);
+    const pu = new THREE.Mesh(new THREE.IcosahedronGeometry(1.0, 0), isShield ? shieldMat : boostMat);
+    pu.position.set(puX, puY, z - 16);
+    scene.add(pu);
+    hazards.push({ mesh: pu, type: isShield ? 'shield' : 'boost', x: puX, y: puY, z: z - 16, radius: 1.2, lethal: false });
+  }
+}
+
+function clearHazards() {
+  for (const h of hazards) {
+    scene.remove(h.mesh);
+  }
+  hazards = [];
+}
+
+// =====================================================================
+// SECTION: PARTICLES (explosion debris)
+// =====================================================================
+let debris = [];
+const debrisGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+const debrisMat = new THREE.MeshBasicMaterial({ color: '#ff8a2a' });
+function spawnExplosion(pos) {
+  for (let i = 0; i < 26; i++) {
+    const mesh = new THREE.Mesh(debrisGeo, debrisMat.clone());
+    mesh.position.copy(pos);
+    scene.add(mesh);
+    debris.push({
+      mesh,
+      vel: new THREE.Vector3(rand(-14, 14), rand(-4, 16), rand(-14, 14)),
+      life: rand(0.6, 1.2),
+      maxLife: 1.2,
+    });
+  }
+}
+function updateDebris(dt) {
+  for (let i = debris.length - 1; i >= 0; i--) {
+    const d = debris[i];
+    d.vel.y -= 26 * dt;
+    d.mesh.position.addScaledVector(d.vel, dt);
+    d.life -= dt;
+    d.mesh.material.opacity = clamp(d.life / d.maxLife, 0, 1);
+    d.mesh.material.transparent = true;
+    if (d.life <= 0) { scene.remove(d.mesh); debris.splice(i, 1); }
+  }
+}
+
+// =====================================================================
+// SECTION: GAME STATE MACHINE
+// =====================================================================
+const STATE = { TITLE: 'title', PLAYING: 'playing', GAMEOVER: 'gameover' };
+let gameState = STATE.TITLE;
+let speed = CONFIG.SPEED_START;
+let distance = 0;
+let score = 0;
+let boostTimer = 0;
+let shieldTimer = 0;
+let cameraShake = 0;
+let warningTimer = 0;
+
+function resetRun() {
+  clearHazards();
+  jetState.x = 0; jetState.y = CONFIG.START_ALTITUDE; jetState.vx = 0; jetState.vy = 0;
+  jetState.roll = 0; jetState.pitch = 0; jetState.alive = true;
+  jetGroup.visible = true;
+  jetGroup.position.set(0, CONFIG.START_ALTITUDE, 0);
+  jetGroup.rotation.set(0, Math.PI, 0);
+  speed = CONFIG.SPEED_START;
+  distance = 0;
+  score = 0;
+  boostTimer = 0;
+  shieldTimer = 0;
+  elapsed = 0;
+  cameraShake = 0;
+  nextSpawnZ = -80;
+  for (let i = 0; i < groundTiles.length; i++) {
+    const z = -i * CONFIG.SEGMENT_LENGTH;
+    groundTiles[i].position.z = z;
+    wallTilesL[i].position.z = z;
+    wallTilesR[i].position.z = z;
+  }
+  debris.forEach((d) => scene.remove(d.mesh));
+  debris = [];
+}
+
+function startGame() {
+  resetRun();
+  gameState = STATE.PLAYING;
+  titleScreen.hidden = true;
+  gameOverScreen.hidden = true;
+  Audio8.startEngine();
+}
+
+function endGame() {
+  gameState = STATE.GAMEOVER;
+  jetState.alive = false;
+  jetGroup.visible = false;
+  spawnExplosion(jetGroup.position);
+  Audio8.explosion();
+  cameraShake = 1.4;
+  crashFlash.style.transition = 'none';
+  crashFlash.style.opacity = '0.9';
+  requestAnimationFrame(() => {
+    crashFlash.style.transition = 'opacity 0.6s';
+    crashFlash.style.opacity = '0';
+  });
+
+  const distFloor = Math.floor(distance);
+  if (distFloor > bestDistance) {
+    bestDistance = distFloor;
+    saveStat('f35cr_best_distance', bestDistance);
+  }
+  goDistEl.textContent = distFloor;
+  goScoreEl.textContent = Math.floor(score);
+  goBestEl.textContent = bestDistance;
+  setTimeout(() => { gameOverScreen.hidden = false; }, 550);
+}
+
+restartBtn.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+glCanvas.addEventListener('pointerdown', () => {
+  if (gameState === STATE.TITLE) startGame();
+});
+titleScreen.addEventListener('pointerdown', () => { startGame(); });
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && gameState !== STATE.PLAYING) startGame();
+});
+
+// =====================================================================
+// SECTION: UPDATE LOGIC (fixed timestep)
+// =====================================================================
+function sphereBoxHit(px, py, pz, r, box) {
+  // box: {x,y,z,hw,hh,hd} axis-aligned half-extents
+  const cx = clamp(px, box.x - box.hw, box.x + box.hw);
+  const cy = clamp(py, box.y - box.hh, box.y + box.hh);
+  const cz = clamp(pz, box.z - box.hd, box.z + box.hd);
+  const dx = px - cx, dy = py - cy, dz = pz - cz;
+  return (dx * dx + dy * dy + dz * dz) < r * r;
+}
+
+function updatePlaying(dt) {
+  elapsed += dt;
+
+  // --- Speed / difficulty ramp ---
+  const boosting = boostTimer > 0;
+  if (boosting) boostTimer -= dt;
+  const targetSpeed = Math.min(CONFIG.SPEED_MAX, CONFIG.SPEED_START + elapsed * CONFIG.SPEED_ACCEL_PER_SEC);
+  speed = boosting ? targetSpeed * CONFIG.BOOST_SPEED_MULT : targetSpeed;
+  if (shieldTimer > 0) shieldTimer -= dt;
+
+  Audio8.updateEngine(clamp(speed / CONFIG.SPEED_MAX, 0, 1));
+
+  // --- Steering ---
+  const steer = getSteerInput();
+  jetState.vx += steer.x * CONFIG.STRAFE_ACCEL * dt;
+  jetState.vy += steer.y * CONFIG.VERT_ACCEL * dt;
+  jetState.vx -= jetState.vx * Math.min(1, CONFIG.STRAFE_DAMPING * dt);
+  jetState.vy -= jetState.vy * Math.min(1, CONFIG.VERT_DAMPING * dt);
+  jetState.vx = clamp(jetState.vx, -CONFIG.STRAFE_MAX_SPEED, CONFIG.STRAFE_MAX_SPEED);
+  jetState.vy = clamp(jetState.vy, -CONFIG.VERT_MAX_SPEED, CONFIG.VERT_MAX_SPEED);
+
+  // Canyon walls and the ground are real hazards, not an invisible safety rail —
+  // flying into either ends the run (unless shielded), matching how solid they look.
+  const wallLimit = CONFIG.CANYON_HALF_WIDTH - CONFIG.JET_HITBOX_RADIUS;
+  const proposedX = jetState.x + jetState.vx * dt;
+  const proposedY = jetState.y + jetState.vy * dt;
+  const hitWall = Math.abs(proposedX) > wallLimit;
+  const hitGround = proposedY <= CONFIG.ALTITUDE_MIN;
+  jetState.x = clamp(proposedX, -wallLimit, wallLimit);
+  jetState.y = clamp(proposedY, CONFIG.ALTITUDE_MIN, CONFIG.ALTITUDE_MAX);
+  if ((hitWall || hitGround) && shieldTimer <= 0) {
+    jetGroup.position.set(jetState.x, jetState.y, 0);
+    endGame();
+    return;
+  }
+
+  jetState.roll = lerp(jetState.roll, -steer.x * CONFIG.MAX_ROLL, 0.12);
+  jetState.pitch = lerp(jetState.pitch, steer.y * CONFIG.MAX_PITCH, 0.12);
+
+  jetGroup.position.set(jetState.x, jetState.y, 0);
+  jetGroup.rotation.set(jetState.pitch, Math.PI, jetState.roll);
+
+  // Afterburner flicker
+  const flick = 0.7 + Math.sin(performance.now() * 0.02) * 0.3;
+  jetGroup.userData.flame.scale.set(1, flick * (boosting ? 1.6 : 1), 1);
+  jetGroup.userData.flameLight.intensity = 1.1 * flick * (boosting ? 1.8 : 1);
+
+  // --- Distance / score ---
+  distance += speed * dt;
+  score += speed * dt * CONFIG.SCORE_PER_METER;
+
+  // --- Move world toward camera (obstacles + terrain) ---
+  const dz = speed * dt;
+  for (const h of hazards) {
+    h.z += dz;
+    h.mesh.position.z = h.z;
+    if (h.type === 'enemy') {
+      h.x += h.vx * dt;
+      h.x = clamp(h.x, -CONFIG.CANYON_HALF_WIDTH + 1, CONFIG.CANYON_HALF_WIDTH - 1);
+      h.mesh.position.x = h.x;
+      h.mesh.position.y = jetState.y + Math.sin(h.z * 0.05) * 0.5;
+    }
+    if (h.type === 'ring') {
+      h.mesh.rotation.z += dt * 1.2;
+    }
+    if (h.type === 'shield' || h.type === 'boost') {
+      h.mesh.rotation.y += dt * 1.6;
+      h.mesh.position.y = h.y + Math.sin(performance.now() * 0.003 + h.x) * 0.4;
+    }
+  }
+  recycleTerrainZ(dz);
+
+  // --- Spawn new hazards ahead ---
+  nextSpawnZ += dz;
+  if (nextSpawnZ > -CONFIG.OBSTACLE_GAP_MIN) {
+    spawnHazardGroup(CONFIG.SPAWN_Z);
+    const difficulty = clamp(elapsed * CONFIG.DIFFICULTY_RAMP, 0, 1);
+    nextSpawnZ = -lerp(CONFIG.OBSTACLE_GAP_START, CONFIG.OBSTACLE_GAP_MIN, difficulty) - rand(0, 8);
+  }
+
+  // --- Collision & pickups ---
+  let closeCall = false;
+  for (let i = hazards.length - 1; i >= 0; i--) {
+    const h = hazards[i];
+    if (h.z < -30 || h.z > 40) {
+      if (h.z > 40) { scene.remove(h.mesh); hazards.splice(i, 1); }
+      continue;
+    }
+    if (Math.abs(h.z) > 8) continue; // only test near the jet plane for perf/accuracy
+
+    if (h.type === 'ring') {
+      const d = Math.hypot(jetState.x - h.x, jetState.y - h.y, h.z);
+      if (d < h.radius + CONFIG.JET_HITBOX_RADIUS) {
+        score += CONFIG.RING_SCORE;
+        Audio8.chime();
+        scene.remove(h.mesh);
+        hazards.splice(i, 1);
+      }
+      continue;
+    }
+    if (h.type === 'shield' || h.type === 'boost') {
+      const d = Math.hypot(jetState.x - h.x, jetState.y - h.y, h.z);
+      if (d < h.radius + CONFIG.JET_HITBOX_RADIUS) {
+        if (h.type === 'shield') shieldTimer = CONFIG.SHIELD_DURATION;
+        else boostTimer = CONFIG.BOOST_DURATION;
+        Audio8.powerup();
+        scene.remove(h.mesh);
+        hazards.splice(i, 1);
+      }
+      continue;
+    }
+
+    if (!h.lethal || shieldTimer > 0) continue;
+
+    let hit = false;
+    if (h.type === 'spire') {
+      hit = sphereBoxHit(jetState.x, jetState.y, 0, CONFIG.JET_HITBOX_RADIUS,
+        { x: h.x, y: h.y, z: h.z, hw: h.radius, hh: h.y, hd: h.radius });
+    } else if (h.type === 'gate') {
+      const insideGap = Math.abs(jetState.x - h.openX) < (h.openW / 2 - CONFIG.JET_HITBOX_RADIUS * 0.6) &&
+                         Math.abs(jetState.y - h.openY) < (h.openH / 2 - CONFIG.JET_HITBOX_RADIUS * 0.6);
+      if (!insideGap && Math.abs(h.z) < 1.6) hit = true;
+    } else if (h.type === 'cable') {
+      const nearY = Math.abs(jetState.y - h.y) < 0.5;
+      const withinSpan = Math.abs(jetState.x) < h.halfWidth;
+      if (nearY && withinSpan && Math.abs(h.z) < 1.2) hit = true;
+    } else if (h.type === 'pylon') {
+      hit = sphereBoxHit(jetState.x, jetState.y, 0, CONFIG.JET_HITBOX_RADIUS,
+        { x: h.x, y: h.halfHeight, z: h.z, hw: h.radius, hh: h.halfHeight, hd: h.radius });
+    } else if (h.type === 'enemy') {
+      const d = Math.hypot(jetState.x - h.x, jetState.y - h.y, h.z);
+      if (d < h.radius + CONFIG.JET_HITBOX_RADIUS) hit = true;
+      if (d < h.radius + CONFIG.JET_HITBOX_RADIUS + CONFIG.NEAR_MISS_RADIUS) closeCall = true;
+    }
+
+    if (hit) {
+      endGame();
+      return;
+    }
+  }
+  if (closeCall && Math.random() < 0.05) { Audio8.nearMiss(); score += CONFIG.NEAR_MISS_BONUS * dt; }
+
+  // Ground / ceiling scrape warning
+  const dangerLow = jetState.y < CONFIG.ALTITUDE_MIN + 2.2;
+  warningTimer = dangerLow ? Math.min(1, warningTimer + dt * 4) : Math.max(0, warningTimer - dt * 4);
+  if (dangerLow && Math.random() < 0.02) Audio8.warn();
+
+  // --- Day/night atmosphere over distance ---
+  const cyclePos = (distance % CONFIG.DAYNIGHT_METERS) / CONFIG.DAYNIGHT_METERS;
+  const t = cyclePos < 0.5 ? cyclePos * 2 : (1 - cyclePos) * 2;
+  const skyNow = skyColorDay.clone().lerp(skyColorDusk, t * 0.7);
+  scene.background = skyNow;
+  scene.fog.color = skyNow;
+  sun.intensity = lerp(1.15, 0.55, t);
+
+  updateDebris(dt);
+  if (cameraShake > 0) cameraShake = Math.max(0, cameraShake - dt * CONFIG.CAMERA_SHAKE_DECAY);
+}
+
+function recycleTerrainZ(dz) {
+  for (const arr of [groundTiles, wallTilesL, wallTilesR]) {
+    let maxZ = -Infinity;
+    for (const m of arr) { m.position.z += dz; if (m.position.z > maxZ) maxZ = m.position.z; }
+    for (const m of arr) {
+      if (m.position.z > CONFIG.SEGMENT_LENGTH * 0.6) {
+        m.position.z -= CONFIG.SEGMENT_LENGTH * arr.length;
+      }
+    }
+  }
+}
+
+function updateIdleCamera(dt) {
+  // gentle bob while on title/gameover
+  jetGroup.position.y = CONFIG.START_ALTITUDE + Math.sin(performance.now() * 0.0012) * 0.6;
+  jetGroup.position.x = 0;
+  jetGroup.rotation.set(0, Math.PI, Math.sin(performance.now() * 0.0009) * 0.08);
+}
+
+function updateCamera(dt) {
+  const lookTarget = new THREE.Vector3(jetState.x * 0.7, jetState.y + 1.2, -CONFIG.CAMERA_LOOKAHEAD);
+  const desired = new THREE.Vector3(
+    jetState.x * 0.55,
+    jetState.y + CONFIG.CAMERA_HEIGHT,
+    CONFIG.CAMERA_DISTANCE
+  );
+  const t = 1 - Math.pow(0.001, dt * CONFIG.CAMERA_LERP);
+  cameraRig.pos.lerp(desired, t);
+  cameraRig.roll = lerp(cameraRig.roll, jetState.roll * CONFIG.CAMERA_ROLL_FOLLOW, 0.08);
+
+  let shakeX = 0, shakeY = 0;
+  if (cameraShake > 0) {
+    shakeX = rand(-1, 1) * cameraShake;
+    shakeY = rand(-1, 1) * cameraShake;
+  }
+  camera.position.set(cameraRig.pos.x + shakeX, cameraRig.pos.y + shakeY, cameraRig.pos.z);
+  camera.up.set(Math.sin(cameraRig.roll), Math.cos(cameraRig.roll), 0);
+  camera.lookAt(lookTarget);
+}
+
+function updateHUD() {
+  hudSpeed.textContent = Math.floor(speed * 3.6).toString().padStart(3, '0');
+  hudAlt.textContent = Math.floor(jetState.y * 30).toString().padStart(3, '0');
+  hudDist.textContent = Math.floor(distance);
+  hudScore.textContent = Math.floor(score);
+  warningBanner.classList.toggle('show', warningTimer > 0.5);
+}
+
+// =====================================================================
+// SECTION: MAIN LOOP (fixed timestep)
+// =====================================================================
+let lastTime = performance.now();
+let accumulator = 0;
+
+function step(dt) {
+  if (gameState === STATE.PLAYING) {
+    updatePlaying(dt);
+  } else {
+    updateIdleCamera(dt);
+    updateDebris(dt);
+  }
+  updateCamera(dt);
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  let delta = (now - lastTime) / 1000;
+  lastTime = now;
+  delta = Math.min(delta, 0.25);
+  accumulator += delta;
+  while (accumulator >= CONFIG.FIXED_TIMESTEP) {
+    step(CONFIG.FIXED_TIMESTEP);
+    accumulator -= CONFIG.FIXED_TIMESTEP;
+  }
+  updateHUD();
+  renderer.render(scene, camera);
+}
+
+// --- Boot ---
+resize();
+camera.position.set(0, CONFIG.CAMERA_HEIGHT + CONFIG.START_ALTITUDE, CONFIG.CAMERA_DISTANCE);
+camera.lookAt(0, CONFIG.START_ALTITUDE, -20);
+loadingMsg.remove();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
